@@ -140,9 +140,7 @@ impl TypeStats {
             ) => {
                 *min = min.min(other_min);
                 *max = max.max(other_max);
-                if other_float {
-                    *is_float = true;
-                }
+                *is_float |= other_float;
             }
             (
                 Self::Bool {
@@ -156,12 +154,8 @@ impl TypeStats {
                     ..
                 },
             ) => {
-                if ot {
-                    *has_true = true;
-                }
-                if of {
-                    *has_false = true;
-                }
+                *has_true |= ot;
+                *has_false |= of;
             }
             (Self::Object { items }, Self::Object { items: other_items }) => {
                 for (k, v) in other_items {
