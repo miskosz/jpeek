@@ -86,7 +86,7 @@ impl TypeStats {
                 let mut items = BTreeMap::new();
                 for (k, v) in map {
                     let mut fs = CollectionStats::default();
-                    fs.merge_value(v, args);
+                    fs.merge_value(TypeStats::new(v, args));
                     items.insert(k.clone(), fs);
                 }
                 Self::Object { items }
@@ -94,7 +94,7 @@ impl TypeStats {
             Value::Array(arr) => {
                 let mut items = CollectionStats::default();
                 for item in arr {
-                    items.merge_value(item, args);
+                    items.merge_value(TypeStats::new(item, args));
                 }
                 Self::Array {
                     example_len: arr.len(),
@@ -106,30 +106,30 @@ impl TypeStats {
         }
     }
 
-    fn merge(&mut self, val: &Value, args: &Args) {
-        match (self, val) {
-            (Self::String { min_val, max_val, .. }, Value::String(s)) => {
-                if s < min_val { *min_val = s.clone(); }
-                if s > max_val { *max_val = s.clone(); }
+    fn merge(&mut self, other: Self) {
+        match (self, other) {
+            (Self::String { min_val, max_val, .. }, Self::String { min_val: other_min, max_val: other_max, .. }) => {
+                if other_min < *min_val { *min_val = other_min; }
+                if other_max > *max_val { *max_val = other_max; }
             }
-            (Self::Number { min, max, is_float, .. }, Value::Number(n)) => {
-                let f = n.as_f64().unwrap_or(0.0);
-                *min = min.min(f);
-                *max = max.max(f);
-                if n.is_f64() && f.fract() != 0.0 { *is_float = true; }
+            (Self::Number { min, max, is_float, .. }, Self::Number { min: other_min, max: other_max, is_float: other_float, .. }) => {
+                *min = min.min(other_min);
+                *max = max.max(other_max);
+                if other_float { *is_float = true; }
             }
-            (Self::Bool { has_true, has_false, .. }, Value::Bool(b)) => {
-                if *b { *has_true = true; } else { *has_false = true; }
+            (Self::Bool { has_true, has_false, .. }, Self::Bool { has_true: ot, has_false: of, .. }) => {
+                if ot { *has_true = true; }
+                if of { *has_false = true; }
             }
-            (Self::Object { items }, Value::Object(map)) => {
-                for (k, v) in map {
-                    items.entry(k.clone()).or_default().merge_value(v, args);
+            (Self::Object { items }, Self::Object { items: other_items }) => {
+                for (k, v) in other_items {
+                    items.entry(k).or_default().merge(v);
                 }
             }
-            (Self::Array { min_len, max_len, items, .. }, Value::Array(arr)) => {
-                *min_len = (*min_len).min(arr.len());
-                *max_len = (*max_len).max(arr.len());
-                for item in arr { items.merge_value(item, args); }
+            (Self::Array { min_len, max_len, items, .. }, Self::Array { min_len: other_min, max_len: other_max, items: other_items, .. }) => {
+                *min_len = (*min_len).min(other_min);
+                *max_len = (*max_len).max(other_max);
+                items.merge(*other_items);
             }
             _ => {}
         }
@@ -198,14 +198,19 @@ struct CollectionStats {
 }
 
 impl CollectionStats {
-    fn merge_value(&mut self, val: &Value, args: &Args) {
-        let new_stats = TypeStats::new(val, args);
-        let key = new_stats.type_key();
+    fn merge_value(&mut self, stats: TypeStats) {
+        let key = stats.type_key();
 
         if let Some(existing) = self.types.get_mut(&key) {
-            existing.merge(val, args);
+            existing.merge(stats);
         } else {
-            self.types.insert(key, new_stats);
+            self.types.insert(key, stats);
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        for (_, stats) in other.types {
+            self.merge_value(stats);
         }
     }
 }
@@ -233,7 +238,7 @@ fn main() {
     });
 
     let mut fs = CollectionStats::default();
-    fs.merge_value(&value, &args);
+    fs.merge_value(TypeStats::new(&value, &args));
 
     match &value {
         Value::Object(_) => {
@@ -338,6 +343,18 @@ fn print_array_entry(ancestors: &[bool], is_last: bool, label: &str, example_len
 fn print_field_stats(fs: &CollectionStats, ancestors: &[bool], args: &Args, in_array: bool) {
     let is_union = fs.types.len() > 1;
     let entries: Vec<_> = fs.types.iter().collect();
+
+    if is_union && in_array {
+        let type_summary = summarize_field_types(fs);
+        print_entry(ancestors, true, "[values]", &type_summary, "", "");
+        let mut child = ancestors.to_vec();
+        child.push(true);
+        for (i, (_key, type_stats)) in entries.iter().enumerate() {
+            let is_last = i == entries.len() - 1;
+            print_stats_node(type_stats, &child, is_last, args, "[option]");
+        }
+        return;
+    }
 
     for (i, (_key, type_stats)) in entries.iter().enumerate() {
         let is_last = i == entries.len() - 1;
