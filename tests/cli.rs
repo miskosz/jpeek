@@ -14,9 +14,18 @@ fn jpeek_with_args(json: &str, args: &[&str]) -> String {
         .stderr(Stdio::piped())
         .spawn()
         .expect("failed to run jpeek");
-    child.stdin.take().unwrap().write_all(json.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(json.as_bytes())
+        .unwrap();
     let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "jpeek failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "jpeek failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     strip_ansi(&String::from_utf8_lossy(&output.stdout))
 }
 
@@ -153,22 +162,38 @@ fn string_range() {
     let out = jpeek(r#"[{"s": "apple"}, {"s": "cherry"}, {"s": "banana"}]"#);
     let lines: Vec<&str> = out.lines().collect();
     // example is "apple" (first seen), range is apple..cherry
-    assert!(lines[2].contains(r#""apple""#), "expected apple example in: {}", lines[2]);
-    assert!(lines[2].contains(r#""cherry""#), "expected cherry in range in: {}", lines[2]);
+    assert!(
+        lines[2].contains(r#""apple""#),
+        "expected apple example in: {}",
+        lines[2]
+    );
+    assert!(
+        lines[2].contains(r#""cherry""#),
+        "expected cherry in range in: {}",
+        lines[2]
+    );
 }
 
 #[test]
 fn number_range() {
     let out = jpeek(r#"[{"n": 10}, {"n": 5}, {"n": 20}]"#);
     let lines: Vec<&str> = out.lines().collect();
-    assert!(lines[2].contains("(5 - 20)"), "expected range in: {}", lines[2]);
+    assert!(
+        lines[2].contains("(5 - 20)"),
+        "expected range in: {}",
+        lines[2]
+    );
 }
 
 #[test]
 fn bool_range() {
     let out = jpeek(r#"[{"b": true}, {"b": false}]"#);
     let lines: Vec<&str> = out.lines().collect();
-    assert!(lines[2].contains("(false - true)"), "expected bool range in: {}", lines[2]);
+    assert!(
+        lines[2].contains("(false - true)"),
+        "expected bool range in: {}",
+        lines[2]
+    );
 }
 
 #[test]
@@ -185,7 +210,11 @@ fn varying_array_lengths() {
     let out = jpeek(r#"[{"items": [1, 2]}, {"items": [1, 2, 3, 4]}]"#);
     let lines: Vec<&str> = out.lines().collect();
     // items should show len range (2 - 4)
-    assert!(lines[2].contains("(2 - 4)"), "expected array len range in: {}", lines[2]);
+    assert!(
+        lines[2].contains("(2 - 4)"),
+        "expected array len range in: {}",
+        lines[2]
+    );
 }
 
 // --- Null in union (sorted last) ---
@@ -195,7 +224,11 @@ fn null_sorted_last_in_union_summary() {
     let out = jpeek(r#"[{"a": null}, {"a": 1}, {"a": "x"}]"#);
     let lines: Vec<&str> = out.lines().collect();
     // union summary should have null last
-    assert!(lines[2].contains("str | int | null"), "expected null last in: {}", lines[2]);
+    assert!(
+        lines[2].contains("str | int | null"),
+        "expected null last in: {}",
+        lines[2]
+    );
 }
 
 // --- Truncation ---
@@ -206,7 +239,11 @@ fn string_truncation() {
     let json = format!(r#"{{"s": "{}"}}"#, long);
     let out = jpeek_with_args(&json, &["-l", "10"]);
     let lines: Vec<&str> = out.lines().collect();
-    assert!(lines[1].contains("..."), "expected truncation in: {}", lines[1]);
+    assert!(
+        lines[1].contains("..."),
+        "expected truncation in: {}",
+        lines[1]
+    );
 }
 
 // --- Nested arrays ---
@@ -226,7 +263,11 @@ fn nested_array() {
 fn float_detection() {
     let out = jpeek(r#"[{"x": 1.5}, {"x": 2.5}]"#);
     let lines: Vec<&str> = out.lines().collect();
-    assert!(lines[2].contains("float"), "expected float in: {}", lines[2]);
+    assert!(
+        lines[2].contains("float"),
+        "expected float in: {}",
+        lines[2]
+    );
 }
 
 #[test]

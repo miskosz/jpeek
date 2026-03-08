@@ -6,7 +6,10 @@ use std::fs::File;
 use std::io::{self, BufReader, Read};
 
 #[derive(Parser)]
-#[command(name = "jpeek", about = "Peek at JSON structure — types, examples, value ranges at a glance")]
+#[command(
+    name = "jpeek",
+    about = "Peek at JSON structure — types, examples, value ranges at a glance"
+)]
 struct Args {
     /// JSON file to analyze (reads stdin if omitted)
     file: Option<String>,
@@ -26,7 +29,6 @@ enum TypeKey {
     Object,
     Array,
 }
-
 
 /// Tracks statistics for a single type occurrence of a field
 #[derive(Clone, Debug)]
@@ -108,25 +110,78 @@ impl TypeStats {
 
     fn merge(&mut self, other: Self) {
         match (self, other) {
-            (Self::String { min_val, max_val, .. }, Self::String { min_val: other_min, max_val: other_max, .. }) => {
-                if other_min < *min_val { *min_val = other_min; }
-                if other_max > *max_val { *max_val = other_max; }
+            (
+                Self::String {
+                    min_val, max_val, ..
+                },
+                Self::String {
+                    min_val: other_min,
+                    max_val: other_max,
+                    ..
+                },
+            ) => {
+                if other_min < *min_val {
+                    *min_val = other_min;
+                }
+                if other_max > *max_val {
+                    *max_val = other_max;
+                }
             }
-            (Self::Number { min, max, is_float, .. }, Self::Number { min: other_min, max: other_max, is_float: other_float, .. }) => {
+            (
+                Self::Number {
+                    min, max, is_float, ..
+                },
+                Self::Number {
+                    min: other_min,
+                    max: other_max,
+                    is_float: other_float,
+                    ..
+                },
+            ) => {
                 *min = min.min(other_min);
                 *max = max.max(other_max);
-                if other_float { *is_float = true; }
+                if other_float {
+                    *is_float = true;
+                }
             }
-            (Self::Bool { has_true, has_false, .. }, Self::Bool { has_true: ot, has_false: of, .. }) => {
-                if ot { *has_true = true; }
-                if of { *has_false = true; }
+            (
+                Self::Bool {
+                    has_true,
+                    has_false,
+                    ..
+                },
+                Self::Bool {
+                    has_true: ot,
+                    has_false: of,
+                    ..
+                },
+            ) => {
+                if ot {
+                    *has_true = true;
+                }
+                if of {
+                    *has_false = true;
+                }
             }
             (Self::Object { items }, Self::Object { items: other_items }) => {
                 for (k, v) in other_items {
                     items.entry(k).or_default().merge(v);
                 }
             }
-            (Self::Array { min_len, max_len, items, .. }, Self::Array { min_len: other_min, max_len: other_max, items: other_items, .. }) => {
+            (
+                Self::Array {
+                    min_len,
+                    max_len,
+                    items,
+                    ..
+                },
+                Self::Array {
+                    min_len: other_min,
+                    max_len: other_max,
+                    items: other_items,
+                    ..
+                },
+            ) => {
                 *min_len = (*min_len).min(other_min);
                 *max_len = (*max_len).max(other_max);
                 items.merge(*other_items);
@@ -139,7 +194,9 @@ impl TypeStats {
         match self {
             Self::String { .. } => "str",
             Self::Number { is_float: true, .. } => "float",
-            Self::Number { is_float: false, .. } => "int",
+            Self::Number {
+                is_float: false, ..
+            } => "int",
             Self::Bool { .. } => "bool",
             Self::Null => "null",
             Self::Object { .. } => "obj",
@@ -161,23 +218,49 @@ impl TypeStats {
     /// Returns (example, optional_range) for leaf types
     fn format_value(&self, max_len: usize) -> (String, String) {
         match self {
-            Self::String { example, min_val, max_val } => {
+            Self::String {
+                example,
+                min_val,
+                max_val,
+            } => {
                 let ex = format!("\"{}\"", truncate(example, max_len));
                 if min_val == max_val {
                     (ex, String::new())
                 } else {
-                    (ex, format!("(\"{}\" - \"{}\")", truncate(min_val, max_len), truncate(max_val, max_len)))
+                    (
+                        ex,
+                        format!(
+                            "(\"{}\" - \"{}\")",
+                            truncate(min_val, max_len),
+                            truncate(max_val, max_len)
+                        ),
+                    )
                 }
             }
-            Self::Number { example, min, max, is_float } => {
+            Self::Number {
+                example,
+                min,
+                max,
+                is_float,
+            } => {
                 if (max - min).abs() < f64::EPSILON {
                     (format_number(*example, *is_float), String::new())
                 } else {
-                    (format_number(*example, *is_float),
-                     format!("({} - {})", format_number(*min, *is_float), format_number(*max, *is_float)))
+                    (
+                        format_number(*example, *is_float),
+                        format!(
+                            "({} - {})",
+                            format_number(*min, *is_float),
+                            format_number(*max, *is_float)
+                        ),
+                    )
                 }
             }
-            Self::Bool { example, has_true, has_false } => {
+            Self::Bool {
+                example,
+                has_true,
+                has_false,
+            } => {
                 if *has_true && *has_false {
                     (format!("{}", example), "(false - true)".to_string())
                 } else if *has_true {
@@ -215,7 +298,6 @@ impl CollectionStats {
     }
 }
 
-
 // --- Main ---
 
 fn main() {
@@ -246,7 +328,13 @@ fn main() {
             print_field_stats(&fs, &[], &args, false);
         }
         Value::Array(arr) => {
-            if let Some(TypeStats::Array { min_len, max_len, items, .. }) = fs.types.get(&TypeKey::Array) {
+            if let Some(TypeStats::Array {
+                min_len,
+                max_len,
+                items,
+                ..
+            }) = fs.types.get(&TypeKey::Array)
+            {
                 print_root_array(arr.len(), *min_len, *max_len);
                 print_field_stats(items, &[], &args, true);
             } else {
@@ -254,7 +342,11 @@ fn main() {
             }
         }
         _ => {
-            println!("{}: {}", "[root]".bright_magenta(), TypeStats::new(&value, &args).display_name().bright_yellow());
+            println!(
+                "{}: {}",
+                "[root]".bright_magenta(),
+                TypeStats::new(&value, &args).display_name().bright_yellow()
+            );
         }
     }
 }
@@ -262,17 +354,34 @@ fn main() {
 fn print_root_array(example_len: usize, min_len: usize, max_len: usize) {
     let colored_example = format!("{}", example_len).bright_green();
     if min_len == max_len {
-        println!("{}: {} {} = {}", "[root]".bright_magenta(), "arr".bright_yellow(), "len".bright_white(), colored_example);
+        println!(
+            "{}: {} {} = {}",
+            "[root]".bright_magenta(),
+            "arr".bright_yellow(),
+            "len".bright_white(),
+            colored_example
+        );
     } else {
         let range = format!("({} - {})", min_len, max_len);
-        println!("{}: {} {} = {}  {}", "[root]".bright_magenta(), "arr".bright_yellow(), "len".bright_white(), colored_example, range.dimmed());
+        println!(
+            "{}: {} {} = {}  {}",
+            "[root]".bright_magenta(),
+            "arr".bright_yellow(),
+            "len".bright_white(),
+            colored_example,
+            range.dimmed()
+        );
     }
 }
 
 // --- Display helpers ---
 
 fn format_number(n: f64, is_float: bool) -> String {
-    if is_float { format!("{}", n) } else { format!("{}", n as i64) }
+    if is_float {
+        format!("{}", n)
+    } else {
+        format!("{}", n as i64)
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -311,30 +420,70 @@ fn color_label(label: &str) -> String {
     }
 }
 
-fn print_entry(ancestors: &[bool], is_last: bool, label: &str, type_str: &str, example: &str, range: &str) {
+fn print_entry(
+    ancestors: &[bool],
+    is_last: bool,
+    label: &str,
+    type_str: &str,
+    example: &str,
+    range: &str,
+) {
     let prefix = tree_prefix(ancestors, is_last);
     let colored_type = type_str.bright_yellow();
 
     if !example.is_empty() && !range.is_empty() {
-        println!("{}{}: {} = {}  {}", prefix, color_label(label), colored_type, example.bright_green(), range.dimmed());
+        println!(
+            "{}{}: {} = {}  {}",
+            prefix,
+            color_label(label),
+            colored_type,
+            example.bright_green(),
+            range.dimmed()
+        );
     } else if !example.is_empty() {
-        println!("{}{}: {} = {}", prefix, color_label(label), colored_type, example.bright_green());
+        println!(
+            "{}{}: {} = {}",
+            prefix,
+            color_label(label),
+            colored_type,
+            example.bright_green()
+        );
     } else {
         println!("{}{}: {}", prefix, color_label(label), colored_type);
     }
 }
 
-fn print_array_entry(ancestors: &[bool], is_last: bool, label: &str, example_len: usize, min_len: usize, max_len: usize) {
+fn print_array_entry(
+    ancestors: &[bool],
+    is_last: bool,
+    label: &str,
+    example_len: usize,
+    min_len: usize,
+    max_len: usize,
+) {
     let prefix = tree_prefix(ancestors, is_last);
     let colored_example = format!("{}", example_len).bright_green();
 
     if min_len == max_len {
-        println!("{}{}: {} {} = {}", prefix, color_label(label),
-            "arr".bright_yellow(), "len".bright_white(), colored_example);
+        println!(
+            "{}{}: {} {} = {}",
+            prefix,
+            color_label(label),
+            "arr".bright_yellow(),
+            "len".bright_white(),
+            colored_example
+        );
     } else {
         let range = format!("({} - {})", min_len, max_len);
-        println!("{}{}: {} {} = {}  {}", prefix, color_label(label),
-            "arr".bright_yellow(), "len".bright_white(), colored_example, range.dimmed());
+        println!(
+            "{}{}: {} {} = {}  {}",
+            prefix,
+            color_label(label),
+            "arr".bright_yellow(),
+            "len".bright_white(),
+            colored_example,
+            range.dimmed()
+        );
     }
 }
 
@@ -371,7 +520,13 @@ fn print_field_stats(fs: &CollectionStats, ancestors: &[bool], args: &Args, in_a
     }
 }
 
-fn print_stats_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: &Args, label: &str) {
+fn print_stats_node(
+    stats: &TypeStats,
+    ancestors: &[bool],
+    is_last: bool,
+    args: &Args,
+    label: &str,
+) {
     match stats {
         TypeStats::Object { items } => {
             print_entry(ancestors, is_last, label, "obj", "", "");
@@ -379,7 +534,12 @@ fn print_stats_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: 
             child.push(is_last);
             print_object_fields(items, &child, args);
         }
-        TypeStats::Array { example_len, min_len, max_len, items } => {
+        TypeStats::Array {
+            example_len,
+            min_len,
+            max_len,
+            items,
+        } => {
             print_array_entry(ancestors, is_last, label, *example_len, *min_len, *max_len);
             let mut child = ancestors.to_vec();
             child.push(is_last);
@@ -420,7 +580,12 @@ fn print_field_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: 
             child.push(is_last);
             print_object_fields(items, &child, args);
         }
-        TypeStats::Array { example_len, min_len, max_len, items } => {
+        TypeStats::Array {
+            example_len,
+            min_len,
+            max_len,
+            items,
+        } => {
             print_array_entry(ancestors, is_last, key, *example_len, *min_len, *max_len);
             let mut child = ancestors.to_vec();
             child.push(is_last);
