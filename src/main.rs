@@ -16,6 +16,18 @@ struct Args {
     max_len: usize,
 }
 
+/// Discriminant for the JSON type of a field
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum TypeKey {
+    String,
+    Number,
+    Bool,
+    Null,
+    Object,
+    Array,
+}
+
+
 /// Tracks statistics for a single type occurrence of a field
 #[derive(Clone, Debug)]
 enum TypeStats {
@@ -123,14 +135,26 @@ impl TypeStats {
         }
     }
 
-    fn type_name(&self) -> &'static str {
+    fn display_name(&self) -> &'static str {
         match self {
-            Self::String { .. } => "string",
-            Self::Number { is_float, .. } => if *is_float { "float" } else { "int" },
+            Self::String { .. } => "str",
+            Self::Number { is_float: true, .. } => "float",
+            Self::Number { is_float: false, .. } => "int",
             Self::Bool { .. } => "bool",
             Self::Null => "null",
-            Self::Object { .. } => "object",
-            Self::Array { .. } => "array",
+            Self::Object { .. } => "obj",
+            Self::Array { .. } => "arr",
+        }
+    }
+
+    fn type_key(&self) -> TypeKey {
+        match self {
+            Self::String { .. } => TypeKey::String,
+            Self::Number { .. } => TypeKey::Number,
+            Self::Bool { .. } => TypeKey::Bool,
+            Self::Null => TypeKey::Null,
+            Self::Object { .. } => TypeKey::Object,
+            Self::Array { .. } => TypeKey::Array,
         }
     }
 
@@ -170,55 +194,22 @@ impl TypeStats {
 /// Tracks all type variants seen for a field
 #[derive(Clone, Debug, Default)]
 struct FieldStats {
-    types: Vec<(&'static str, TypeStats)>,
+    types: BTreeMap<TypeKey, TypeStats>,
 }
 
 impl FieldStats {
     fn merge_value(&mut self, val: &Value, args: &Args) {
-        let type_name = type_label(val);
+        let new_stats = TypeStats::new(val, args);
+        let key = new_stats.type_key();
 
-        // Merge int into float (int is a subset of float)
-        let pos = if type_name == "int" {
-            self.types.iter().position(|(n, _)| *n == "int")
-                .or_else(|| self.types.iter().position(|(n, _)| *n == "float"))
-        } else if type_name == "float" {
-            if let Some(pos) = self.types.iter().position(|(n, _)| *n == "int") {
-                self.types[pos].0 = "float";
-                if let TypeStats::Number { is_float, .. } = &mut self.types[pos].1 {
-                    *is_float = true;
-                }
-                Some(pos)
-            } else {
-                self.types.iter().position(|(n, _)| *n == "float")
-            }
+        if let Some(existing) = self.types.get_mut(&key) {
+            existing.merge(val, args);
         } else {
-            self.types.iter().position(|(n, _)| *n == type_name)
-        };
-
-        if let Some(pos) = pos {
-            self.types[pos].1.merge(val, args);
-        } else {
-            self.types.push((type_name, TypeStats::new(val, args)));
+            self.types.insert(key, new_stats);
         }
     }
 }
 
-fn type_label(val: &Value) -> &'static str {
-    match val {
-        Value::String(_) => "string",
-        Value::Number(n) => {
-            if n.is_f64() && n.as_f64().map_or(false, |f| f.fract() != 0.0) {
-                "float"
-            } else {
-                "int"
-            }
-        }
-        Value::Bool(_) => "bool",
-        Value::Null => "null",
-        Value::Object(_) => "object",
-        Value::Array(_) => "array",
-    }
-}
 
 // --- Main ---
 
@@ -250,7 +241,7 @@ fn main() {
             print_field_stats(&fs, &[], &args, false);
         }
         Value::Array(arr) => {
-            if let Some((_, TypeStats::Array { min_len, max_len, item_stats, .. })) = fs.types.first() {
+            if let Some(TypeStats::Array { min_len, max_len, item_stats, .. }) = fs.types.get(&TypeKey::Array) {
                 print_root_array(arr.len(), *min_len, *max_len);
                 print_field_stats(item_stats, &[], &args, true);
             } else {
@@ -258,7 +249,7 @@ fn main() {
             }
         }
         _ => {
-            println!("{}: {}", "[root]".bright_magenta(), display_type_name(type_label(&value)).bright_yellow());
+            println!("{}: {}", "[root]".bright_magenta(), TypeStats::new(&value, &args).display_name().bright_yellow());
         }
     }
 }
@@ -275,15 +266,6 @@ fn print_root_array(example_len: usize, min_len: usize, max_len: usize) {
 
 // --- Display helpers ---
 
-fn display_type_name(internal: &str) -> &str {
-    match internal {
-        "string" => "str",
-        "object" => "obj",
-        "array" => "arr",
-        _ => internal,
-    }
-}
-
 fn format_number(n: f64, is_float: bool) -> String {
     if is_float { format!("{}", n) } else { format!("{}", n as i64) }
 }
@@ -297,10 +279,7 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 fn summarize_field_types(fs: &FieldStats) -> String {
-    let mut names: Vec<&str> = fs.types.iter().map(|(n, _)| display_type_name(n)).collect();
-    if names.contains(&"float") && names.contains(&"int") {
-        names.retain(|&n| n != "int");
-    }
+    let mut names: Vec<&str> = fs.types.values().map(|v| v.display_name()).collect();
     if let Some(pos) = names.iter().position(|&n| n == "null") {
         let null = names.remove(pos);
         names.push(null);
@@ -329,7 +308,7 @@ fn color_label(label: &str) -> String {
 
 fn print_entry(ancestors: &[bool], is_last: bool, label: &str, type_str: &str, example: &str, range: &str) {
     let prefix = tree_prefix(ancestors, is_last);
-    let colored_type = display_type_name(type_str).bright_yellow();
+    let colored_type = type_str.bright_yellow();
 
     if !example.is_empty() && !range.is_empty() {
         println!("{}{}: {} = {}  {}", prefix, color_label(label), colored_type, example.bright_green(), range.dimmed());
@@ -358,9 +337,10 @@ fn print_array_entry(ancestors: &[bool], is_last: bool, label: &str, example_len
 
 fn print_field_stats(fs: &FieldStats, ancestors: &[bool], args: &Args, in_array: bool) {
     let is_union = fs.types.len() > 1;
+    let entries: Vec<_> = fs.types.iter().collect();
 
-    for (i, (_type_name, type_stats)) in fs.types.iter().enumerate() {
-        let is_last = i == fs.types.len() - 1;
+    for (i, (_key, type_stats)) in entries.iter().enumerate() {
+        let is_last = i == entries.len() - 1;
 
         if is_union {
             print_stats_node(type_stats, ancestors, is_last, args, "[option]");
@@ -377,7 +357,7 @@ fn print_field_stats(fs: &FieldStats, ancestors: &[bool], args: &Args, in_array:
 fn print_stats_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: &Args, label: &str) {
     match stats {
         TypeStats::Object { merged } => {
-            print_entry(ancestors, is_last, label, "object", "", "");
+            print_entry(ancestors, is_last, label, "obj", "", "");
             let mut child = ancestors.to_vec();
             child.push(is_last);
             print_object_fields(merged, &child, args);
@@ -390,7 +370,7 @@ fn print_stats_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: 
         }
         _ => {
             let (ex, rng) = stats.format_value(args.max_len);
-            print_entry(ancestors, is_last, label, stats.type_name(), &ex, &rng);
+            print_entry(ancestors, is_last, label, stats.display_name(), &ex, &rng);
         }
     }
 }
@@ -408,7 +388,7 @@ fn print_object_fields(merged: &BTreeMap<String, FieldStats>, ancestors: &[bool]
             let mut child = ancestors.to_vec();
             child.push(is_last);
             print_field_stats(field_stats, &child, args, true);
-        } else if let Some((_tn, stats)) = field_stats.types.first() {
+        } else if let Some((_key, stats)) = field_stats.types.iter().next() {
             print_field_node(stats, ancestors, is_last, args, key);
         }
     }
@@ -418,7 +398,7 @@ fn print_object_fields(merged: &BTreeMap<String, FieldStats>, ancestors: &[bool]
 fn print_field_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: &Args, key: &str) {
     match stats {
         TypeStats::Object { merged } => {
-            print_entry(ancestors, is_last, key, "object", "", "");
+            print_entry(ancestors, is_last, key, "obj", "", "");
             let mut child = ancestors.to_vec();
             child.push(is_last);
             print_object_fields(merged, &child, args);
@@ -431,7 +411,7 @@ fn print_field_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: 
         }
         _ => {
             let (ex, rng) = stats.format_value(args.max_len);
-            print_entry(ancestors, is_last, key, stats.type_name(), &ex, &rng);
+            print_entry(ancestors, is_last, key, stats.display_name(), &ex, &rng);
         }
     }
 }
