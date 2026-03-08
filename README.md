@@ -7,7 +7,7 @@ Peek at JSON structure — types, examples, and value ranges at a glance.
 Requires [Rust](https://rustup.rs/).
 
 ```sh
-git clone https://github.com/michal/jpeek
+git clone https://github.com/miskosz/jpeek
 cd jpeek
 cargo install --path .
 ```
