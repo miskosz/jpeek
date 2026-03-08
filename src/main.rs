@@ -87,9 +87,9 @@ impl TypeStats {
             Value::Object(map) => {
                 let mut items = BTreeMap::new();
                 for (k, v) in map {
-                    let mut fs = CollectionStats::default();
-                    fs.merge_value(TypeStats::new(v, args));
-                    items.insert(k.clone(), fs);
+                    let mut cs = CollectionStats::default();
+                    cs.merge_value(TypeStats::new(v, args));
+                    items.insert(k.clone(), cs);
                 }
                 Self::Object { items }
             }
@@ -319,13 +319,13 @@ fn main() {
         std::process::exit(1);
     });
 
-    let mut fs = CollectionStats::default();
-    fs.merge_value(TypeStats::new(&value, &args));
+    let mut cs = CollectionStats::default();
+    cs.merge_value(TypeStats::new(&value, &args));
 
     match &value {
         Value::Object(_) => {
             println!("{}: {}", "[root]".bright_magenta(), "obj".bright_yellow());
-            print_field_stats(&fs, &[], &args, false);
+            print_field_stats(&cs, &[], &args, false);
         }
         Value::Array(arr) => {
             if let Some(TypeStats::Array {
@@ -333,7 +333,7 @@ fn main() {
                 max_len,
                 items,
                 ..
-            }) = fs.types.get(&TypeKey::Array)
+            }) = cs.types.get(&TypeKey::Array)
             {
                 print_root_array(arr.len(), *min_len, *max_len);
                 print_field_stats(items, &[], &args, true);
@@ -392,8 +392,8 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn summarize_field_types(fs: &CollectionStats) -> String {
-    let mut names: Vec<&str> = fs.types.values().map(|v| v.display_name()).collect();
+fn summarize_field_types(cs: &CollectionStats) -> String {
+    let mut names: Vec<&str> = cs.types.values().map(|v| v.display_name()).collect();
     if let Some(pos) = names.iter().position(|&n| n == "null") {
         let null = names.remove(pos);
         names.push(null);
@@ -489,12 +489,12 @@ fn print_array_entry(
 
 // --- Recursive printing ---
 
-fn print_field_stats(fs: &CollectionStats, ancestors: &[bool], args: &Args, in_array: bool) {
-    let is_union = fs.types.len() > 1;
-    let entries: Vec<_> = fs.types.iter().collect();
+fn print_field_stats(cs: &CollectionStats, ancestors: &[bool], args: &Args, in_array: bool) {
+    let is_union = cs.types.len() > 1;
+    let entries: Vec<_> = cs.types.iter().collect();
 
     if is_union && in_array {
-        let type_summary = summarize_field_types(fs);
+        let type_summary = summarize_field_types(cs);
         print_entry(ancestors, true, "[values]", &type_summary, "", "");
         let mut child = ancestors.to_vec();
         child.push(true);
