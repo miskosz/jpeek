@@ -49,13 +49,13 @@ enum TypeStats {
     },
     Null,
     Object {
-        merged: BTreeMap<String, FieldStats>,
+        items: BTreeMap<String, CollectionStats>,
     },
     Array {
         example_len: usize,
         min_len: usize,
         max_len: usize,
-        item_stats: Box<FieldStats>,
+        items: Box<CollectionStats>,
     },
 }
 
@@ -83,24 +83,24 @@ impl TypeStats {
             },
             Value::Null => Self::Null,
             Value::Object(map) => {
-                let mut merged = BTreeMap::new();
+                let mut items = BTreeMap::new();
                 for (k, v) in map {
-                    let mut fs = FieldStats::default();
+                    let mut fs = CollectionStats::default();
                     fs.merge_value(v, args);
-                    merged.insert(k.clone(), fs);
+                    items.insert(k.clone(), fs);
                 }
-                Self::Object { merged }
+                Self::Object { items }
             }
             Value::Array(arr) => {
-                let mut item_stats = FieldStats::default();
+                let mut items = CollectionStats::default();
                 for item in arr {
-                    item_stats.merge_value(item, args);
+                    items.merge_value(item, args);
                 }
                 Self::Array {
                     example_len: arr.len(),
                     min_len: arr.len(),
                     max_len: arr.len(),
-                    item_stats: Box::new(item_stats),
+                    items: Box::new(items),
                 }
             }
         }
@@ -121,15 +121,15 @@ impl TypeStats {
             (Self::Bool { has_true, has_false, .. }, Value::Bool(b)) => {
                 if *b { *has_true = true; } else { *has_false = true; }
             }
-            (Self::Object { merged }, Value::Object(map)) => {
+            (Self::Object { items }, Value::Object(map)) => {
                 for (k, v) in map {
-                    merged.entry(k.clone()).or_default().merge_value(v, args);
+                    items.entry(k.clone()).or_default().merge_value(v, args);
                 }
             }
-            (Self::Array { min_len, max_len, item_stats, .. }, Value::Array(arr)) => {
+            (Self::Array { min_len, max_len, items, .. }, Value::Array(arr)) => {
                 *min_len = (*min_len).min(arr.len());
                 *max_len = (*max_len).max(arr.len());
-                for item in arr { item_stats.merge_value(item, args); }
+                for item in arr { items.merge_value(item, args); }
             }
             _ => {}
         }
@@ -193,11 +193,11 @@ impl TypeStats {
 
 /// Tracks all type variants seen for a field
 #[derive(Clone, Debug, Default)]
-struct FieldStats {
+struct CollectionStats {
     types: BTreeMap<TypeKey, TypeStats>,
 }
 
-impl FieldStats {
+impl CollectionStats {
     fn merge_value(&mut self, val: &Value, args: &Args) {
         let new_stats = TypeStats::new(val, args);
         let key = new_stats.type_key();
@@ -232,7 +232,7 @@ fn main() {
         std::process::exit(1);
     });
 
-    let mut fs = FieldStats::default();
+    let mut fs = CollectionStats::default();
     fs.merge_value(&value, &args);
 
     match &value {
@@ -241,9 +241,9 @@ fn main() {
             print_field_stats(&fs, &[], &args, false);
         }
         Value::Array(arr) => {
-            if let Some(TypeStats::Array { min_len, max_len, item_stats, .. }) = fs.types.get(&TypeKey::Array) {
+            if let Some(TypeStats::Array { min_len, max_len, items, .. }) = fs.types.get(&TypeKey::Array) {
                 print_root_array(arr.len(), *min_len, *max_len);
-                print_field_stats(item_stats, &[], &args, true);
+                print_field_stats(items, &[], &args, true);
             } else {
                 print_root_array(arr.len(), arr.len(), arr.len());
             }
@@ -278,7 +278,7 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn summarize_field_types(fs: &FieldStats) -> String {
+fn summarize_field_types(fs: &CollectionStats) -> String {
     let mut names: Vec<&str> = fs.types.values().map(|v| v.display_name()).collect();
     if let Some(pos) = names.iter().position(|&n| n == "null") {
         let null = names.remove(pos);
@@ -335,7 +335,7 @@ fn print_array_entry(ancestors: &[bool], is_last: bool, label: &str, example_len
 
 // --- Recursive printing ---
 
-fn print_field_stats(fs: &FieldStats, ancestors: &[bool], args: &Args, in_array: bool) {
+fn print_field_stats(fs: &CollectionStats, ancestors: &[bool], args: &Args, in_array: bool) {
     let is_union = fs.types.len() > 1;
     let entries: Vec<_> = fs.types.iter().collect();
 
@@ -346,8 +346,8 @@ fn print_field_stats(fs: &FieldStats, ancestors: &[bool], args: &Args, in_array:
             print_stats_node(type_stats, ancestors, is_last, args, "[option]");
         } else if in_array {
             print_stats_node(type_stats, ancestors, true, args, "[values]");
-        } else if let TypeStats::Object { merged } = type_stats {
-            print_object_fields(merged, ancestors, args);
+        } else if let TypeStats::Object { items } = type_stats {
+            print_object_fields(items, ancestors, args);
         } else {
             print_stats_node(type_stats, ancestors, true, args, "[values]");
         }
@@ -356,17 +356,17 @@ fn print_field_stats(fs: &FieldStats, ancestors: &[bool], args: &Args, in_array:
 
 fn print_stats_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: &Args, label: &str) {
     match stats {
-        TypeStats::Object { merged } => {
+        TypeStats::Object { items } => {
             print_entry(ancestors, is_last, label, "obj", "", "");
             let mut child = ancestors.to_vec();
             child.push(is_last);
-            print_object_fields(merged, &child, args);
+            print_object_fields(items, &child, args);
         }
-        TypeStats::Array { example_len, min_len, max_len, item_stats } => {
+        TypeStats::Array { example_len, min_len, max_len, items } => {
             print_array_entry(ancestors, is_last, label, *example_len, *min_len, *max_len);
             let mut child = ancestors.to_vec();
             child.push(is_last);
-            print_field_stats(item_stats, &child, args, true);
+            print_field_stats(items, &child, args, true);
         }
         _ => {
             let (ex, rng) = stats.format_value(args.max_len);
@@ -375,8 +375,8 @@ fn print_stats_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: 
     }
 }
 
-fn print_object_fields(merged: &BTreeMap<String, FieldStats>, ancestors: &[bool], args: &Args) {
-    let keys: Vec<_> = merged.iter().collect();
+fn print_object_fields(items: &BTreeMap<String, CollectionStats>, ancestors: &[bool], args: &Args) {
+    let keys: Vec<_> = items.iter().collect();
     let len = keys.len();
 
     for (i, (key, field_stats)) in keys.iter().enumerate() {
@@ -397,17 +397,17 @@ fn print_object_fields(merged: &BTreeMap<String, FieldStats>, ancestors: &[bool]
 /// Print a named field (object key). Inlines object children directly.
 fn print_field_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: &Args, key: &str) {
     match stats {
-        TypeStats::Object { merged } => {
+        TypeStats::Object { items } => {
             print_entry(ancestors, is_last, key, "obj", "", "");
             let mut child = ancestors.to_vec();
             child.push(is_last);
-            print_object_fields(merged, &child, args);
+            print_object_fields(items, &child, args);
         }
-        TypeStats::Array { example_len, min_len, max_len, item_stats } => {
+        TypeStats::Array { example_len, min_len, max_len, items } => {
             print_array_entry(ancestors, is_last, key, *example_len, *min_len, *max_len);
             let mut child = ancestors.to_vec();
             child.push(is_last);
-            print_field_stats(item_stats, &child, args, true);
+            print_field_stats(items, &child, args, true);
         }
         _ => {
             let (ex, rng) = stats.format_value(args.max_len);
