@@ -564,7 +564,7 @@ fn print_object_fields(items: &BTreeMap<String, CollectionStats>, ancestors: &[b
             print_entry(ancestors, is_last, key, &type_summary, "", "");
             let mut child = ancestors.to_vec();
             child.push(is_last);
-            print_field_stats(field_stats, &child, args, true);
+            print_field_stats(field_stats, &child, args, false);
         } else if let Some((_key, stats)) = field_stats.types.iter().next() {
             print_field_node(stats, ancestors, is_last, args, key);
         }
