@@ -62,7 +62,7 @@ enum TypeStats {
 }
 
 impl TypeStats {
-    fn new(val: &Value, args: &Args) -> Self {
+    fn new(val: &Value) -> Self {
         match val {
             Value::String(s) => Self::String {
                 example: s.clone(),
@@ -88,7 +88,7 @@ impl TypeStats {
                 let mut items = BTreeMap::new();
                 for (k, v) in map {
                     let mut cs = CollectionStats::default();
-                    cs.merge_value(TypeStats::new(v, args));
+                    cs.merge_value(TypeStats::new(v));
                     items.insert(k.clone(), cs);
                 }
                 Self::Object { items }
@@ -96,7 +96,7 @@ impl TypeStats {
             Value::Array(arr) => {
                 let mut items = CollectionStats::default();
                 for item in arr {
-                    items.merge_value(TypeStats::new(item, args));
+                    items.merge_value(TypeStats::new(item));
                 }
                 Self::Array {
                     example_len: arr.len(),
@@ -314,7 +314,7 @@ fn main() {
     });
 
     let mut cs = CollectionStats::default();
-    cs.merge_value(TypeStats::new(&value, &args));
+    cs.merge_value(TypeStats::new(&value));
 
     match &value {
         Value::Object(_) => {
@@ -329,14 +329,22 @@ fn main() {
                 ..
             }) = cs.types.get(&TypeKey::Array)
             {
-                println!("{}: {}", "[root]".bright_magenta(), format_array_len(arr.len(), *min_len, *max_len));
+                println!(
+                    "{}: {}",
+                    "[root]".bright_magenta(),
+                    format_array_len(arr.len(), *min_len, *max_len)
+                );
                 print_field_stats(items, &[], &args, true);
             } else {
-                println!("{}: {}", "[root]".bright_magenta(), format_array_len(arr.len(), arr.len(), arr.len()));
+                println!(
+                    "{}: {}",
+                    "[root]".bright_magenta(),
+                    format_array_len(arr.len(), arr.len(), arr.len())
+                );
             }
         }
         _ => {
-            let ts = TypeStats::new(&value, &args);
+            let ts = cs.types.into_values().next().unwrap();
             let (ex, _rng) = ts.format_value(args.max_len);
             let type_name = ts.display_name().bright_yellow();
             if ex.is_empty() {
@@ -358,8 +366,10 @@ fn main() {
 fn format_number(n: f64, is_float: bool) -> String {
     if is_float {
         format!("{}", n)
-    } else {
+    } else if n >= i64::MIN as f64 && n <= i64::MAX as f64 {
         format!("{}", n as i64)
+    } else {
+        format!("{:.0}", n)
     }
 }
 
@@ -408,7 +418,12 @@ fn print_entry(
     range: &str,
 ) {
     let prefix = tree_prefix(ancestors, is_last);
-    let mut line = format!("{}{}: {}", prefix, color_label(label), type_str.bright_yellow());
+    let mut line = format!(
+        "{}{}: {}",
+        prefix,
+        color_label(label),
+        type_str.bright_yellow()
+    );
     if !example.is_empty() {
         line.push_str(&format!(" = {}", example.bright_green()));
         if !range.is_empty() {
@@ -426,7 +441,10 @@ fn format_array_len(example_len: usize, min_len: usize, max_len: usize) -> Strin
         format!("{}", example_len).bright_green()
     );
     if min_len != max_len {
-        s.push_str(&format!("  {}", format!("({} - {})", min_len, max_len).dimmed()));
+        s.push_str(&format!(
+            "  {}",
+            format!("({} - {})", min_len, max_len).dimmed()
+        ));
     }
     s
 }
@@ -531,4 +549,3 @@ fn print_object_fields(items: &BTreeMap<String, CollectionStats>, ancestors: &[b
         }
     }
 }
-
