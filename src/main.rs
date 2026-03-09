@@ -329,10 +329,10 @@ fn main() {
                 ..
             }) = cs.types.get(&TypeKey::Array)
             {
-                print_root_array(arr.len(), *min_len, *max_len);
+                println!("{}: {}", "[root]".bright_magenta(), format_array_len(arr.len(), *min_len, *max_len));
                 print_field_stats(items, &[], &args, true);
             } else {
-                print_root_array(arr.len(), arr.len(), arr.len());
+                println!("{}: {}", "[root]".bright_magenta(), format_array_len(arr.len(), arr.len(), arr.len()));
             }
         }
         _ => {
@@ -350,29 +350,6 @@ fn main() {
                 );
             }
         }
-    }
-}
-
-fn print_root_array(example_len: usize, min_len: usize, max_len: usize) {
-    let colored_example = format!("{}", example_len).bright_green();
-    if min_len == max_len {
-        println!(
-            "{}: {} {} = {}",
-            "[root]".bright_magenta(),
-            "arr".bright_yellow(),
-            "len".bright_white(),
-            colored_example
-        );
-    } else {
-        let range = format!("({} - {})", min_len, max_len);
-        println!(
-            "{}: {} {} = {}  {}",
-            "[root]".bright_magenta(),
-            "arr".bright_yellow(),
-            "len".bright_white(),
-            colored_example,
-            range.dimmed()
-        );
     }
 }
 
@@ -431,28 +408,27 @@ fn print_entry(
     range: &str,
 ) {
     let prefix = tree_prefix(ancestors, is_last);
-    let colored_type = type_str.bright_yellow();
-
-    if !example.is_empty() && !range.is_empty() {
-        println!(
-            "{}{}: {} = {}  {}",
-            prefix,
-            color_label(label),
-            colored_type,
-            example.bright_green(),
-            range.dimmed()
-        );
-    } else if !example.is_empty() {
-        println!(
-            "{}{}: {} = {}",
-            prefix,
-            color_label(label),
-            colored_type,
-            example.bright_green()
-        );
-    } else {
-        println!("{}{}: {}", prefix, color_label(label), colored_type);
+    let mut line = format!("{}{}: {}", prefix, color_label(label), type_str.bright_yellow());
+    if !example.is_empty() {
+        line.push_str(&format!(" = {}", example.bright_green()));
+        if !range.is_empty() {
+            line.push_str(&format!("  {}", range.dimmed()));
+        }
     }
+    println!("{}", line);
+}
+
+fn format_array_len(example_len: usize, min_len: usize, max_len: usize) -> String {
+    let mut s = format!(
+        "{} {} = {}",
+        "arr".bright_yellow(),
+        "len".bright_white(),
+        format!("{}", example_len).bright_green()
+    );
+    if min_len != max_len {
+        s.push_str(&format!("  {}", format!("({} - {})", min_len, max_len).dimmed()));
+    }
+    s
 }
 
 fn print_array_entry(
@@ -464,29 +440,12 @@ fn print_array_entry(
     max_len: usize,
 ) {
     let prefix = tree_prefix(ancestors, is_last);
-    let colored_example = format!("{}", example_len).bright_green();
-
-    if min_len == max_len {
-        println!(
-            "{}{}: {} {} = {}",
-            prefix,
-            color_label(label),
-            "arr".bright_yellow(),
-            "len".bright_white(),
-            colored_example
-        );
-    } else {
-        let range = format!("({} - {})", min_len, max_len);
-        println!(
-            "{}{}: {} {} = {}  {}",
-            prefix,
-            color_label(label),
-            "arr".bright_yellow(),
-            "len".bright_white(),
-            colored_example,
-            range.dimmed()
-        );
-    }
+    println!(
+        "{}{}: {}",
+        prefix,
+        color_label(label),
+        format_array_len(example_len, min_len, max_len)
+    );
 }
 
 // --- Recursive printing ---
@@ -568,34 +527,8 @@ fn print_object_fields(items: &BTreeMap<String, CollectionStats>, ancestors: &[b
             child.push(is_last);
             print_field_stats(field_stats, &child, args, false);
         } else if let Some((_key, stats)) = field_stats.types.iter().next() {
-            print_field_node(stats, ancestors, is_last, args, key);
+            print_stats_node(stats, ancestors, is_last, args, key);
         }
     }
 }
 
-/// Print a named field (object key). Inlines object children directly.
-fn print_field_node(stats: &TypeStats, ancestors: &[bool], is_last: bool, args: &Args, key: &str) {
-    match stats {
-        TypeStats::Object { items } => {
-            print_entry(ancestors, is_last, key, "obj", "", "");
-            let mut child = ancestors.to_vec();
-            child.push(is_last);
-            print_object_fields(items, &child, args);
-        }
-        TypeStats::Array {
-            example_len,
-            min_len,
-            max_len,
-            items,
-        } => {
-            print_array_entry(ancestors, is_last, key, *example_len, *min_len, *max_len);
-            let mut child = ancestors.to_vec();
-            child.push(is_last);
-            print_field_stats(items, &child, args, true);
-        }
-        _ => {
-            let (ex, rng) = stats.format_value(args.max_len);
-            print_entry(ancestors, is_last, key, stats.display_name(), &ex, &rng);
-        }
-    }
-}
