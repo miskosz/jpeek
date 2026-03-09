@@ -336,11 +336,19 @@ fn main() {
             }
         }
         _ => {
-            println!(
-                "{}: {}",
-                "[root]".bright_magenta(),
-                TypeStats::new(&value, &args).display_name().bright_yellow()
-            );
+            let ts = TypeStats::new(&value, &args);
+            let (ex, _rng) = ts.format_value(args.max_len);
+            let type_name = ts.display_name().bright_yellow();
+            if ex.is_empty() {
+                println!("{}: {}", "[root]".bright_magenta(), type_name);
+            } else {
+                println!(
+                    "{}: {} = {}",
+                    "[root]".bright_magenta(),
+                    type_name,
+                    ex.bright_green()
+                );
+            }
         }
     }
 }

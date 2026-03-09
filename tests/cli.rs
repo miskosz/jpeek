@@ -53,25 +53,25 @@ fn strip_ansi(s: &str) -> String {
 #[test]
 fn root_string() {
     let out = jpeek(r#""hello""#);
-    assert_eq!(out.trim(), r#"[root]: str"#);
+    assert_eq!(out.trim(), r#"[root]: str = "hello""#);
 }
 
 #[test]
 fn root_number() {
     let out = jpeek("42");
-    assert_eq!(out.trim(), "[root]: int");
+    assert_eq!(out.trim(), "[root]: int = 42");
 }
 
 #[test]
 fn root_float() {
     let out = jpeek("3.14");
-    assert_eq!(out.trim(), "[root]: float");
+    assert_eq!(out.trim(), "[root]: float = 3.14");
 }
 
 #[test]
 fn root_bool() {
     let out = jpeek("true");
-    assert_eq!(out.trim(), "[root]: bool");
+    assert_eq!(out.trim(), "[root]: bool = true");
 }
 
 #[test]
