@@ -1,7 +1,7 @@
 use clap::Parser;
 use colored::Colorize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{self, BufReader, Read};
 
@@ -28,6 +28,7 @@ enum TypeKey {
     Null,
     Object,
     Array,
+    Undefined,
 }
 
 /// Tracks statistics for a single type occurrence of a field
@@ -50,6 +51,7 @@ enum TypeStats {
         has_false: bool,
     },
     Null,
+    Undefined,
     Object {
         items: BTreeMap<String, CollectionStats>,
     },
@@ -157,9 +159,23 @@ impl TypeStats {
                 *has_true |= ot;
                 *has_false |= of;
             }
+            (Self::Undefined, Self::Undefined) => {}
             (Self::Object { items }, Self::Object { items: other_items }) => {
+                let other_keys: BTreeSet<_> = other_items.keys().cloned().collect();
                 for (k, v) in other_items {
-                    items.entry(k).or_default().merge(v);
+                    items
+                        .entry(k)
+                        .or_insert_with(|| {
+                            let mut cs = CollectionStats::default();
+                            cs.merge_value(TypeStats::Undefined);
+                            cs
+                        })
+                        .merge(v);
+                }
+                for (k, v) in items.iter_mut() {
+                    if !other_keys.contains(k) {
+                        v.merge_value(TypeStats::Undefined);
+                    }
                 }
             }
             (
@@ -193,6 +209,7 @@ impl TypeStats {
             } => "int",
             Self::Bool { .. } => "bool",
             Self::Null => "null",
+            Self::Undefined => "undefined",
             Self::Object { .. } => "obj",
             Self::Array { .. } => "arr",
         }
@@ -204,6 +221,7 @@ impl TypeStats {
             Self::Number { .. } => TypeKey::Number,
             Self::Bool { .. } => TypeKey::Bool,
             Self::Null => TypeKey::Null,
+            Self::Undefined => TypeKey::Undefined,
             Self::Object { .. } => TypeKey::Object,
             Self::Array { .. } => TypeKey::Array,
         }
@@ -386,6 +404,10 @@ fn summarize_field_types(cs: &CollectionStats) -> String {
     if let Some(pos) = names.iter().position(|&n| n == "null") {
         let null = names.remove(pos);
         names.push(null);
+    }
+    if let Some(pos) = names.iter().position(|&n| n == "undefined") {
+        let undef = names.remove(pos);
+        names.push(undef);
     }
     names.join(" | ")
 }

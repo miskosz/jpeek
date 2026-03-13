@@ -301,7 +301,7 @@ fn fields_sorted() {
     assert!(lines[3].contains("zebra"));
 }
 
-// --- Mixed arrays: objects gain new fields across elements ---
+// --- Optional field detection (undefined) ---
 
 #[test]
 fn objects_with_varying_fields() {
@@ -309,6 +309,104 @@ fn objects_with_varying_fields() {
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines[0], "[root]: arr len = 2");
     assert_eq!(lines[1], "└── [values]: obj");
-    assert!(lines[2].contains("a: int"));
-    assert!(lines[3].contains("b: str"));
+    assert!(lines[2].contains("a: int"), "a should be required: {}", lines[2]);
+    assert!(
+        lines[3].contains("b: str | undefined"),
+        "b should be optional: {}",
+        lines[3]
+    );
+}
+
+#[test]
+fn all_fields_missing_from_some_object() {
+    let out = jpeek(r#"[{"a": 1}, {"b": 2}]"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: arr len = 2");
+    assert_eq!(lines[1], "└── [values]: obj");
+    assert!(
+        lines[2].contains("a: int | undefined"),
+        "a should be optional: {}",
+        lines[2]
+    );
+    assert!(
+        lines[5].contains("b: int | undefined"),
+        "b should be optional: {}",
+        lines[5]
+    );
+}
+
+#[test]
+fn no_undefined_for_single_object() {
+    let out = jpeek(r#"{"a": 1, "b": 2}"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[1], "├── a: int = 1");
+    assert_eq!(lines[2], "└── b: int = 2");
+}
+
+#[test]
+fn no_undefined_when_all_objects_have_field() {
+    let out = jpeek(r#"[{"a": 1}, {"a": 2}]"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[2], "    └── a: int = 1  (1 - 2)");
+}
+
+#[test]
+fn undefined_with_union_type() {
+    // a is present in both (required), b has mixed types + missing (optional)
+    let out = jpeek(r#"[{"a": 1, "b": "x"}, {"a": 2, "b": 3}, {"a": 3}]"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(
+        lines[2].contains("a: int"),
+        "a should be plain int: {}",
+        lines[2]
+    );
+    assert!(!lines[2].contains("undefined"), "a should not be optional: {}", lines[2]);
+    // b should be str | int | undefined
+    let b_line = lines.iter().find(|l| l.contains("b:")).unwrap();
+    assert!(
+        b_line.contains("str") && b_line.contains("int") && b_line.contains("undefined"),
+        "b should be str | int | undefined: {}",
+        b_line
+    );
+}
+
+#[test]
+fn undefined_sorted_last_in_union() {
+    let out = jpeek(r#"[{"a": 1}, {"b": 2}]"#);
+    let lines: Vec<&str> = out.lines().collect();
+    // undefined should come after the real type
+    assert!(
+        lines[2].contains("int | undefined"),
+        "undefined should be last: {}",
+        lines[2]
+    );
+}
+
+#[test]
+fn undefined_after_null_in_union() {
+    let out = jpeek(r#"[{"a": null}, {"b": 1}]"#);
+    let lines: Vec<&str> = out.lines().collect();
+    let a_line = lines.iter().find(|l| l.contains("a:")).unwrap();
+    assert!(
+        a_line.contains("null | undefined"),
+        "undefined should be after null: {}",
+        a_line
+    );
+}
+
+#[test]
+fn undefined_expands_as_option() {
+    let out = jpeek(r#"[{"a": 1}, {"b": 2}]"#);
+    let lines: Vec<&str> = out.lines().collect();
+    // a: int | undefined should expand to show [option] nodes
+    assert!(
+        lines[3].contains("[option]: int"),
+        "expected int option: {}",
+        lines[3]
+    );
+    assert!(
+        lines[4].contains("[option]: undefined"),
+        "expected undefined option: {}",
+        lines[4]
+    );
 }
