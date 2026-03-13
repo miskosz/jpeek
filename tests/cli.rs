@@ -152,7 +152,7 @@ fn union_field_in_object_array() {
     assert_eq!(lines[4], "    │   └── [option]: int = 1");
     assert_eq!(lines[5], "    └── b: str | null");
     assert_eq!(lines[6], r#"        ├── [option]: str = "hello""#);
-    assert_eq!(lines[7], "        └── [option]: null");
+    assert_eq!(lines[7], "        └── [option]: null cnt = 1  (0 - 1)");
 }
 
 // --- Ranges ---

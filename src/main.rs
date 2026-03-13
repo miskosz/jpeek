@@ -50,8 +50,16 @@ enum TypeStats {
         has_true: bool,
         has_false: bool,
     },
-    Null,
-    Undefined,
+    Null {
+        example_count: usize,
+        min_count: usize,
+        max_count: usize,
+    },
+    Undefined {
+        example_count: usize,
+        min_count: usize,
+        max_count: usize,
+    },
     Object {
         items: BTreeMap<String, CollectionStats>,
     },
@@ -85,7 +93,11 @@ impl TypeStats {
                 has_true: *b,
                 has_false: !*b,
             },
-            Value::Null => Self::Null,
+            Value::Null => Self::Null {
+                example_count: 1,
+                min_count: 1,
+                max_count: 1,
+            },
             Value::Object(map) => {
                 let mut items = BTreeMap::new();
                 for (k, v) in map {
@@ -159,7 +171,30 @@ impl TypeStats {
                 *has_true |= ot;
                 *has_false |= of;
             }
-            (Self::Undefined, Self::Undefined) => {}
+            (
+                Self::Null {
+                    example_count,
+                    min_count,
+                    max_count,
+                },
+                Self::Null { .. },
+            ) => {
+                *example_count += 1;
+                *min_count = *example_count;
+                *max_count = *example_count;
+            }
+            (
+                Self::Undefined {
+                    example_count,
+                    min_count,
+                    max_count,
+                },
+                Self::Undefined { .. },
+            ) => {
+                *example_count += 1;
+                *min_count = *example_count;
+                *max_count = *example_count;
+            }
             (Self::Object { items }, Self::Object { items: other_items }) => {
                 let other_keys: BTreeSet<_> = other_items.keys().cloned().collect();
                 for (k, v) in other_items {
@@ -167,14 +202,14 @@ impl TypeStats {
                         .entry(k)
                         .or_insert_with(|| {
                             let mut cs = CollectionStats::default();
-                            cs.merge_value(TypeStats::Undefined);
+                            cs.merge_value(TypeStats::Undefined { example_count: 1, min_count: 1, max_count: 1 });
                             cs
                         })
                         .merge(v);
                 }
                 for (k, v) in items.iter_mut() {
                     if !other_keys.contains(k) {
-                        v.merge_value(TypeStats::Undefined);
+                        v.merge_value(TypeStats::Undefined { example_count: 1, min_count: 1, max_count: 1 });
                     }
                 }
             }
@@ -208,8 +243,8 @@ impl TypeStats {
                 is_float: false, ..
             } => "int",
             Self::Bool { .. } => "bool",
-            Self::Null => "null",
-            Self::Undefined => "undefined",
+            Self::Null { .. } => "null",
+            Self::Undefined { .. } => "undefined",
             Self::Object { .. } => "obj",
             Self::Array { .. } => "arr",
         }
@@ -220,8 +255,8 @@ impl TypeStats {
             Self::String { .. } => TypeKey::String,
             Self::Number { .. } => TypeKey::Number,
             Self::Bool { .. } => TypeKey::Bool,
-            Self::Null => TypeKey::Null,
-            Self::Undefined => TypeKey::Undefined,
+            Self::Null { .. } => TypeKey::Null,
+            Self::Undefined { .. } => TypeKey::Undefined,
             Self::Object { .. } => TypeKey::Object,
             Self::Array { .. } => TypeKey::Array,
         }
@@ -281,9 +316,31 @@ impl TypeStats {
                     ("false".to_string(), String::new())
                 }
             }
+            Self::Null {
+                min_count,
+                max_count,
+                example_count,
+            }
+            | Self::Undefined {
+                min_count,
+                max_count,
+                example_count,
+            } => {
+                if *min_count == 1 && *max_count == 1 {
+                    (String::new(), String::new())
+                } else {
+                    let ex = format!("{}", example_count);
+                    if min_count == max_count {
+                        (ex, String::new())
+                    } else {
+                        (ex, format!("({} - {})", min_count, max_count))
+                    }
+                }
+            }
             _ => (String::new(), String::new()),
         }
     }
+
 }
 
 /// Tracks all type variants seen for a field
@@ -304,8 +361,46 @@ impl CollectionStats {
     }
 
     fn merge(&mut self, other: Self) {
-        for (_, stats) in other.types {
-            self.merge_value(stats);
+        let other_keys: BTreeSet<_> = other.types.keys().cloned().collect();
+        let self_keys: BTreeSet<_> = self.types.keys().cloned().collect();
+
+        for (key, mut stats) in other.types {
+            if let Some(existing) = self.types.get_mut(&key) {
+                match (existing, stats) {
+                    (
+                        TypeStats::Null { example_count, min_count, max_count },
+                        TypeStats::Null { example_count: oc, min_count: omin, max_count: omax },
+                    )
+                    | (
+                        TypeStats::Undefined { example_count, min_count, max_count },
+                        TypeStats::Undefined { example_count: oc, min_count: omin, max_count: omax },
+                    ) => {
+                        *example_count += oc;
+                        *min_count = (*min_count).min(omin);
+                        *max_count = (*max_count).max(omax);
+                    }
+                    (existing, stats) => existing.merge(stats),
+                }
+            } else {
+                if let TypeStats::Null { min_count, .. }
+                | TypeStats::Undefined { min_count, .. } = &mut stats
+                {
+                    *min_count = 0;
+                }
+                self.types.insert(key, stats);
+            }
+        }
+
+        for key in &self_keys {
+            if !other_keys.contains(key) {
+                if let Some(
+                    TypeStats::Null { min_count, .. }
+                    | TypeStats::Undefined { min_count, .. },
+                ) = self.types.get_mut(key)
+                {
+                    *min_count = 0;
+                }
+            }
         }
     }
 }
@@ -545,6 +640,26 @@ fn print_stats_node(
             let mut child = ancestors.to_vec();
             child.push(is_last);
             print_field_stats(items, &child, args, true);
+        }
+        TypeStats::Null { .. } | TypeStats::Undefined { .. } => {
+            let (ex, rng) = stats.format_value(args.max_len);
+            if ex.is_empty() {
+                print_entry(ancestors, is_last, label, stats.display_name(), "", "");
+            } else {
+                let prefix = tree_prefix(ancestors, is_last);
+                let mut line = format!(
+                    "{}{}: {} {} = {}",
+                    prefix,
+                    color_label(label),
+                    stats.display_name().bright_yellow(),
+                    "cnt".bright_white(),
+                    ex.bright_green()
+                );
+                if !rng.is_empty() {
+                    line.push_str(&format!("  {}", rng.dimmed()));
+                }
+                println!("{}", line);
+            }
         }
         _ => {
             let (ex, rng) = stats.format_value(args.max_len);
