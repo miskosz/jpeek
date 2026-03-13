@@ -172,28 +172,14 @@ impl TypeStats {
                 *has_false |= of;
             }
             (
-                Self::Null {
-                    example_count,
-                    min_count,
-                    max_count,
-                },
-                Self::Null { .. },
+                Self::Null { example_count, min_count, max_count }
+                | Self::Undefined { example_count, min_count, max_count },
+                Self::Null { example_count: oc, min_count: omin, max_count: omax }
+                | Self::Undefined { example_count: oc, min_count: omin, max_count: omax },
             ) => {
-                *example_count += 1;
-                *min_count = *example_count;
-                *max_count = *example_count;
-            }
-            (
-                Self::Undefined {
-                    example_count,
-                    min_count,
-                    max_count,
-                },
-                Self::Undefined { .. },
-            ) => {
-                *example_count += 1;
-                *min_count = *example_count;
-                *max_count = *example_count;
+                *example_count += oc;
+                *min_count = (*min_count).min(omin);
+                *max_count = (*max_count).max(omax);
             }
             (Self::Object { items }, Self::Object { items: other_items }) => {
                 let other_keys: BTreeSet<_> = other_items.keys().cloned().collect();
@@ -361,45 +347,26 @@ impl CollectionStats {
     }
 
     fn merge(&mut self, other: Self) {
-        let other_keys: BTreeSet<_> = other.types.keys().cloned().collect();
         let self_keys: BTreeSet<_> = self.types.keys().cloned().collect();
+        let other_keys: BTreeSet<_> = other.types.keys().cloned().collect();
 
-        for (key, mut stats) in other.types {
+        // Insert keys only in other
+        for (key, stats) in other.types {
             if let Some(existing) = self.types.get_mut(&key) {
-                match (existing, stats) {
-                    (
-                        TypeStats::Null { example_count, min_count, max_count },
-                        TypeStats::Null { example_count: oc, min_count: omin, max_count: omax },
-                    )
-                    | (
-                        TypeStats::Undefined { example_count, min_count, max_count },
-                        TypeStats::Undefined { example_count: oc, min_count: omin, max_count: omax },
-                    ) => {
-                        *example_count += oc;
-                        *min_count = (*min_count).min(omin);
-                        *max_count = (*max_count).max(omax);
-                    }
-                    (existing, stats) => existing.merge(stats),
-                }
+                existing.merge(stats);
             } else {
-                if let TypeStats::Null { min_count, .. }
-                | TypeStats::Undefined { min_count, .. } = &mut stats
-                {
-                    *min_count = 0;
-                }
                 self.types.insert(key, stats);
             }
         }
 
-        for key in &self_keys {
-            if !other_keys.contains(key) {
-                if let Some(
-                    TypeStats::Null { min_count, .. }
-                    | TypeStats::Undefined { min_count, .. },
-                ) = self.types.get_mut(key)
-                {
-                    *min_count = 0;
-                }
+        // Keys in only one side: min_count becomes 0
+        for key in self_keys.symmetric_difference(&other_keys) {
+            if let Some(
+                TypeStats::Null { min_count, .. }
+                | TypeStats::Undefined { min_count, .. },
+            ) = self.types.get_mut(key)
+            {
+                *min_count = 0;
             }
         }
     }
