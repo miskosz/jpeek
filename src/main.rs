@@ -393,40 +393,32 @@ fn main() {
         std::process::exit(1);
     });
 
-    let mut cs = CollectionStats::default();
-    cs.merge_value(TypeStats::new(&value));
+    let stats = TypeStats::new(&value);
+    print_root(&stats, &args);
+}
 
-    match &value {
-        Value::Object(_) => {
+fn print_root(stats: &TypeStats, args: &Args) {
+    match stats {
+        TypeStats::Object { items } => {
             println!("{}: {}", "[root]".bright_magenta(), "obj".bright_yellow());
-            print_field_stats(&cs, &[], &args, false);
+            print_object_fields(items, &[], args);
         }
-        Value::Array(arr) => {
-            if let Some(TypeStats::Array {
-                min_len,
-                max_len,
-                items,
-                ..
-            }) = cs.types.get(&TypeKey::Array)
-            {
-                println!(
-                    "{}: {}",
-                    "[root]".bright_magenta(),
-                    format_array_len(arr.len(), *min_len, *max_len)
-                );
-                print_field_stats(items, &[], &args, true);
-            } else {
-                println!(
-                    "{}: {}",
-                    "[root]".bright_magenta(),
-                    format_array_len(arr.len(), arr.len(), arr.len())
-                );
-            }
+        TypeStats::Array {
+            example_len,
+            min_len,
+            max_len,
+            items,
+        } => {
+            println!(
+                "{}: {}",
+                "[root]".bright_magenta(),
+                format_array_len(*example_len, *min_len, *max_len)
+            );
+            print_field_stats(items, &[], args, true);
         }
         _ => {
-            let ts = cs.types.into_values().next().unwrap();
-            let (ex, _rng) = ts.format_value(args.max_len);
-            let type_name = ts.display_name().bright_yellow();
+            let (ex, _rng) = stats.format_value(args.max_len);
+            let type_name = stats.display_name().bright_yellow();
             if ex.is_empty() {
                 println!("{}: {}", "[root]".bright_magenta(), type_name);
             } else {
