@@ -2,8 +2,9 @@ mod print;
 
 use clap::Parser;
 use colored::Colorize;
-use serde_json::Value;
+use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::fs::File;
 use std::io::{self, BufReader, Read};
 
@@ -74,56 +75,6 @@ pub(crate) enum TypeStats {
 }
 
 impl TypeStats {
-    fn new(val: &Value) -> Self {
-        match val {
-            Value::String(s) => Self::String {
-                example: s.clone(),
-                min_val: s.clone(),
-                max_val: s.clone(),
-            },
-            Value::Number(n) => {
-                let f = n.as_f64().unwrap_or(0.0);
-                Self::Number {
-                    example: f,
-                    min: f,
-                    max: f,
-                    is_float: n.is_f64() && f.fract() != 0.0,
-                }
-            }
-            Value::Bool(b) => Self::Bool {
-                example: *b,
-                has_true: *b,
-                has_false: !*b,
-            },
-            Value::Null => Self::Null {
-                example_count: 1,
-                min_count: 1,
-                max_count: 1,
-            },
-            Value::Object(map) => {
-                let mut items = BTreeMap::new();
-                for (k, v) in map {
-                    let mut cs = CollectionStats::default();
-                    cs.merge_value(TypeStats::new(v));
-                    items.insert(k.clone(), cs);
-                }
-                Self::Object { items }
-            }
-            Value::Array(arr) => {
-                let mut items = CollectionStats::default();
-                for item in arr {
-                    items.merge_value(TypeStats::new(item));
-                }
-                Self::Array {
-                    example_len: arr.len(),
-                    min_len: arr.len(),
-                    max_len: arr.len(),
-                    items: Box::new(items),
-                }
-            }
-        }
-    }
-
     fn merge(&mut self, other: Self) {
         match (self, other) {
             (
@@ -302,6 +253,110 @@ impl CollectionStats {
     }
 }
 
+// --- Streaming deserializer ---
+
+struct StatsSeed;
+
+impl<'de> DeserializeSeed<'de> for StatsSeed {
+    type Value = TypeStats;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(StatsVisitor)
+    }
+}
+
+struct StatsVisitor;
+
+impl<'de> Visitor<'de> for StatsVisitor {
+    type Value = TypeStats;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_str<E: de::Error>(self, v: &str) -> Result<TypeStats, E> {
+        Ok(TypeStats::String {
+            example: v.to_owned(),
+            min_val: v.to_owned(),
+            max_val: v.to_owned(),
+        })
+    }
+
+    fn visit_bool<E: de::Error>(self, v: bool) -> Result<TypeStats, E> {
+        Ok(TypeStats::Bool {
+            example: v,
+            has_true: v,
+            has_false: !v,
+        })
+    }
+
+    fn visit_i64<E: de::Error>(self, v: i64) -> Result<TypeStats, E> {
+        let f = v as f64;
+        Ok(TypeStats::Number {
+            example: f,
+            min: f,
+            max: f,
+            is_float: false,
+        })
+    }
+
+    fn visit_u64<E: de::Error>(self, v: u64) -> Result<TypeStats, E> {
+        let f = v as f64;
+        Ok(TypeStats::Number {
+            example: f,
+            min: f,
+            max: f,
+            is_float: false,
+        })
+    }
+
+    fn visit_f64<E: de::Error>(self, v: f64) -> Result<TypeStats, E> {
+        Ok(TypeStats::Number {
+            example: v,
+            min: v,
+            max: v,
+            is_float: v.fract() != 0.0,
+        })
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<TypeStats, E> {
+        Ok(TypeStats::Null {
+            example_count: 1,
+            min_count: 1,
+            max_count: 1,
+        })
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<TypeStats, A::Error> {
+        let mut items = CollectionStats::default();
+        let mut len: usize = 0;
+        while let Some(element) = seq.next_element_seed(StatsSeed)? {
+            items.merge_value(element);
+            len += 1;
+        }
+        Ok(TypeStats::Array {
+            example_len: len,
+            min_len: len,
+            max_len: len,
+            items: Box::new(items),
+        })
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<TypeStats, A::Error> {
+        let mut items = BTreeMap::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let value = map.next_value_seed(StatsSeed)?;
+            let mut cs = CollectionStats::default();
+            cs.merge_value(value);
+            items.insert(key, cs);
+        }
+        Ok(TypeStats::Object { items })
+    }
+}
+
 // --- Main ---
 
 fn main() {
@@ -318,11 +373,12 @@ fn main() {
         None => Box::new(BufReader::new(io::stdin())),
     };
 
-    let value: Value = serde_json::from_reader(reader).unwrap_or_else(|e| {
-        eprintln!("{} invalid JSON: {}", "error:".red().bold(), e);
-        std::process::exit(1);
-    });
-
-    let stats = TypeStats::new(&value);
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    let stats = StatsSeed
+        .deserialize(&mut deserializer)
+        .unwrap_or_else(|e| {
+            eprintln!("{} invalid JSON: {}", "error:".red().bold(), e);
+            std::process::exit(1);
+        });
     print::print_root(&stats, &args);
 }
