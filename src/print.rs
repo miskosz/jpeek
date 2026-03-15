@@ -3,6 +3,122 @@ use std::collections::BTreeMap;
 
 use crate::{Args, CollectionStats, TypeStats};
 
+// --- Display helpers ---
+
+fn format_number(n: f64, is_float: bool) -> String {
+    if is_float {
+        format!("{}", n)
+    } else if n >= i64::MIN as f64 && n <= i64::MAX as f64 {
+        format!("{}", n as i64)
+    } else {
+        format!("{:.0}", n)
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        format!("{}...", s.chars().take(max).collect::<String>())
+    }
+}
+
+impl TypeStats {
+    fn display_name(&self) -> &'static str {
+        match self {
+            Self::String { .. } => "str",
+            Self::Number { is_float: true, .. } => "float",
+            Self::Number {
+                is_float: false, ..
+            } => "int",
+            Self::Bool { .. } => "bool",
+            Self::Null { .. } => "null",
+            Self::Undefined { .. } => "undefined",
+            Self::Object { .. } => "obj",
+            Self::Array { .. } => "arr",
+        }
+    }
+
+    /// Returns (example, optional_range) for leaf types
+    fn format_value(&self, max_len: usize) -> (String, String) {
+        match self {
+            Self::String {
+                example,
+                min_val,
+                max_val,
+            } => {
+                let ex = format!("\"{}\"", truncate(example, max_len));
+                if min_val == max_val {
+                    (ex, String::new())
+                } else {
+                    (
+                        ex,
+                        format!(
+                            "(\"{}\" - \"{}\")",
+                            truncate(min_val, max_len),
+                            truncate(max_val, max_len)
+                        ),
+                    )
+                }
+            }
+            Self::Number {
+                example,
+                min,
+                max,
+                is_float,
+            } => {
+                if (max - min).abs() < f64::EPSILON {
+                    (format_number(*example, *is_float), String::new())
+                } else {
+                    (
+                        format_number(*example, *is_float),
+                        format!(
+                            "({} - {})",
+                            format_number(*min, *is_float),
+                            format_number(*max, *is_float)
+                        ),
+                    )
+                }
+            }
+            Self::Bool {
+                example,
+                has_true,
+                has_false,
+            } => {
+                if *has_true && *has_false {
+                    (format!("{}", example), "(false - true)".to_string())
+                } else if *has_true {
+                    ("true".to_string(), String::new())
+                } else {
+                    ("false".to_string(), String::new())
+                }
+            }
+            Self::Null {
+                min_count,
+                max_count,
+                example_count,
+            }
+            | Self::Undefined {
+                min_count,
+                max_count,
+                example_count,
+            } => {
+                if *min_count == 1 && *max_count == 1 {
+                    (String::new(), String::new())
+                } else {
+                    let ex = format!("{}", example_count);
+                    if min_count == max_count {
+                        (ex, String::new())
+                    } else {
+                        (ex, format!("({} - {})", min_count, max_count))
+                    }
+                }
+            }
+            _ => (String::new(), String::new()),
+        }
+    }
+}
+
 pub(crate) fn print_root(stats: &TypeStats, args: &Args) {
     match stats {
         TypeStats::Object { items } => {

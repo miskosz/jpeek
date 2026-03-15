@@ -174,10 +174,26 @@ impl TypeStats {
                 *has_false |= of;
             }
             (
-                Self::Null { example_count, min_count, max_count }
-                | Self::Undefined { example_count, min_count, max_count },
-                Self::Null { example_count: oc, min_count: omin, max_count: omax }
-                | Self::Undefined { example_count: oc, min_count: omin, max_count: omax },
+                Self::Null {
+                    example_count,
+                    min_count,
+                    max_count,
+                }
+                | Self::Undefined {
+                    example_count,
+                    min_count,
+                    max_count,
+                },
+                Self::Null {
+                    example_count: oc,
+                    min_count: omin,
+                    max_count: omax,
+                }
+                | Self::Undefined {
+                    example_count: oc,
+                    min_count: omin,
+                    max_count: omax,
+                },
             ) => {
                 *example_count += oc;
                 *min_count = (*min_count).min(omin);
@@ -190,14 +206,22 @@ impl TypeStats {
                         .entry(k)
                         .or_insert_with(|| {
                             let mut cs = CollectionStats::default();
-                            cs.merge_value(TypeStats::Undefined { example_count: 1, min_count: 1, max_count: 1 });
+                            cs.merge_value(TypeStats::Undefined {
+                                example_count: 1,
+                                min_count: 1,
+                                max_count: 1,
+                            });
                             cs
                         })
                         .merge(v);
                 }
                 for (k, v) in items.iter_mut() {
                     if !other_keys.contains(k) {
-                        v.merge_value(TypeStats::Undefined { example_count: 1, min_count: 1, max_count: 1 });
+                        v.merge_value(TypeStats::Undefined {
+                            example_count: 1,
+                            min_count: 1,
+                            max_count: 1,
+                        });
                     }
                 }
             }
@@ -223,21 +247,6 @@ impl TypeStats {
         }
     }
 
-    pub(crate) fn display_name(&self) -> &'static str {
-        match self {
-            Self::String { .. } => "str",
-            Self::Number { is_float: true, .. } => "float",
-            Self::Number {
-                is_float: false, ..
-            } => "int",
-            Self::Bool { .. } => "bool",
-            Self::Null { .. } => "null",
-            Self::Undefined { .. } => "undefined",
-            Self::Object { .. } => "obj",
-            Self::Array { .. } => "arr",
-        }
-    }
-
     fn type_key(&self) -> TypeKey {
         match self {
             Self::String { .. } => TypeKey::String,
@@ -249,86 +258,6 @@ impl TypeStats {
             Self::Array { .. } => TypeKey::Array,
         }
     }
-
-    /// Returns (example, optional_range) for leaf types
-    pub(crate) fn format_value(&self, max_len: usize) -> (String, String) {
-        match self {
-            Self::String {
-                example,
-                min_val,
-                max_val,
-            } => {
-                let ex = format!("\"{}\"", truncate(example, max_len));
-                if min_val == max_val {
-                    (ex, String::new())
-                } else {
-                    (
-                        ex,
-                        format!(
-                            "(\"{}\" - \"{}\")",
-                            truncate(min_val, max_len),
-                            truncate(max_val, max_len)
-                        ),
-                    )
-                }
-            }
-            Self::Number {
-                example,
-                min,
-                max,
-                is_float,
-            } => {
-                if (max - min).abs() < f64::EPSILON {
-                    (format_number(*example, *is_float), String::new())
-                } else {
-                    (
-                        format_number(*example, *is_float),
-                        format!(
-                            "({} - {})",
-                            format_number(*min, *is_float),
-                            format_number(*max, *is_float)
-                        ),
-                    )
-                }
-            }
-            Self::Bool {
-                example,
-                has_true,
-                has_false,
-            } => {
-                if *has_true && *has_false {
-                    (format!("{}", example), "(false - true)".to_string())
-                } else if *has_true {
-                    ("true".to_string(), String::new())
-                } else {
-                    ("false".to_string(), String::new())
-                }
-            }
-            Self::Null {
-                min_count,
-                max_count,
-                example_count,
-            }
-            | Self::Undefined {
-                min_count,
-                max_count,
-                example_count,
-            } => {
-                if *min_count == 1 && *max_count == 1 {
-                    (String::new(), String::new())
-                } else {
-                    let ex = format!("{}", example_count);
-                    if min_count == max_count {
-                        (ex, String::new())
-                    } else {
-                        (ex, format!("({} - {})", min_count, max_count))
-                    }
-                }
-            }
-            _ => (String::new(), String::new()),
-        }
-    }
-
 }
 
 /// Tracks all type variants seen for a field
@@ -364,8 +293,7 @@ impl CollectionStats {
         // Keys in only one side: min_count becomes 0
         for key in self_keys.symmetric_difference(&other_keys) {
             if let Some(
-                TypeStats::Null { min_count, .. }
-                | TypeStats::Undefined { min_count, .. },
+                TypeStats::Null { min_count, .. } | TypeStats::Undefined { min_count, .. },
             ) = self.types.get_mut(key)
             {
                 *min_count = 0;
@@ -398,24 +326,3 @@ fn main() {
     let stats = TypeStats::new(&value);
     print::print_root(&stats, &args);
 }
-
-// --- Display helpers ---
-
-fn format_number(n: f64, is_float: bool) -> String {
-    if is_float {
-        format!("{}", n)
-    } else if n >= i64::MIN as f64 && n <= i64::MAX as f64 {
-        format!("{}", n as i64)
-    } else {
-        format!("{:.0}", n)
-    }
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", s.chars().take(max).collect::<String>())
-    }
-}
-

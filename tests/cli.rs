@@ -309,7 +309,11 @@ fn objects_with_varying_fields() {
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines[0], "[root]: arr len = 2");
     assert_eq!(lines[1], "└── [values]: obj");
-    assert!(lines[2].contains("a: int"), "a should be required: {}", lines[2]);
+    assert!(
+        lines[2].contains("a: int"),
+        "a should be required: {}",
+        lines[2]
+    );
     assert!(
         lines[3].contains("b: str | undefined"),
         "b should be optional: {}",
@@ -360,7 +364,11 @@ fn undefined_with_union_type() {
         "a should be plain int: {}",
         lines[2]
     );
-    assert!(!lines[2].contains("undefined"), "a should not be optional: {}", lines[2]);
+    assert!(
+        !lines[2].contains("undefined"),
+        "a should not be optional: {}",
+        lines[2]
+    );
     // b should be str | int | undefined
     let b_line = lines.iter().find(|l| l.contains("b:")).unwrap();
     assert!(
