@@ -418,3 +418,106 @@ fn undefined_expands_as_option() {
         lines[4]
     );
 }
+
+// --- Map folding ---
+
+#[test]
+fn map_simple_string_values() {
+    let out = jpeek(r#"{"a": "x", "b": "y", "c": "z"}"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: map len = 3");
+    assert!(lines[1].contains("[keys]: str"));
+    assert!(lines[2].contains("[values]: str"));
+}
+
+#[test]
+fn map_not_folded_with_two_keys() {
+    let out = jpeek(r#"{"x": 1, "y": 2}"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: obj");
+    assert!(lines[1].contains("x: int"));
+    assert!(lines[2].contains("y: int"));
+}
+
+#[test]
+fn map_not_folded_with_mixed_types() {
+    let out = jpeek(r#"{"a": 1, "b": "str", "c": true}"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: obj");
+}
+
+#[test]
+fn map_int_values() {
+    let out = jpeek(r#"{"timeout": 30, "retries": 3, "port": 8080}"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: map len = 3");
+    assert!(lines[1].contains("[keys]: str"));
+    assert!(lines[2].contains("[values]: int"));
+}
+
+#[test]
+fn map_nested_maps() {
+    let out = jpeek(
+        r#"{"us": {"a": 1, "b": 2, "c": 3}, "eu": {"d": 4, "e": 5, "f": 6}, "ap": {"g": 7, "h": 8, "i": 9}}"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: map len = 3");
+    assert!(lines[1].contains("[keys]: str"));
+    assert!(
+        lines[2].contains("[values]: map"),
+        "inner should be map: {}",
+        lines[2]
+    );
+}
+
+#[test]
+fn map_with_object_values() {
+    let out = jpeek(
+        r#"{"-p": {"type": "bool", "count": 1}, "-n": {"type": "int", "count": 2, "default": "5"}, "-z": {"type": "bool", "count": 0}}"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: map len = 3");
+    assert!(lines[1].contains("[keys]: str"));
+    assert!(lines[2].contains("[values]: obj"));
+    assert!(lines[3].contains("count: int"));
+    assert!(lines[4].contains("default: str | undefined"));
+    assert!(lines[7].contains("type: str"));
+}
+
+#[test]
+fn map_inside_array() {
+    let out = jpeek(r#"[{"a": 1, "b": 2, "c": 3}]"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: arr len = 1");
+    assert!(
+        lines[1].contains("[values]: map"),
+        "array element should be map: {}",
+        lines[1]
+    );
+}
+
+#[test]
+fn array_inside_map() {
+    let out = jpeek(r#"{"x": [1,2], "y": [3,4], "z": [5,6]}"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: map len = 3");
+    assert!(lines[1].contains("[keys]: str"));
+    assert!(
+        lines[2].contains("[values]: arr"),
+        "map values should be arr: {}",
+        lines[2]
+    );
+}
+
+#[test]
+fn map_with_nullable_values() {
+    let out = jpeek(r#"{"a": 1, "b": null, "c": 3}"#);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "[root]: map len = 3");
+    assert!(lines[1].contains("[keys]: str"));
+    assert!(
+        lines[2].contains("[values]: int | null"),
+        "should show int | null union: {}",
+        lines[2]
+    );
+}
