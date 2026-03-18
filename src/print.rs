@@ -36,6 +36,7 @@ impl TypeStats {
             Self::Undefined { .. } => "undefined",
             Self::Object { .. } => "obj",
             Self::Array { .. } => "arr",
+            Self::Map { .. } => "map",
         }
     }
 
@@ -134,9 +135,25 @@ pub(crate) fn print_root(stats: &TypeStats, args: &Args) {
             println!(
                 "{}: {}",
                 "[root]".bright_magenta(),
-                format_array_len(*example_len, *min_len, *max_len)
+                format_collection_len("arr",*example_len, *min_len, *max_len)
             );
             print_field_stats(items, &[], args, true);
+        }
+        TypeStats::Map {
+            example_len,
+            min_len,
+            max_len,
+            keys,
+            values,
+        } => {
+            println!(
+                "{}: {}",
+                "[root]".bright_magenta(),
+                format_collection_len("map", *example_len, *min_len, *max_len)
+            );
+            let (ex, rng) = keys.format_value(args.max_len);
+            print_entry(&[], false, "[keys]", keys.display_name(), &ex, &rng);
+            print_field_stats(values, &[], args, true);
         }
         _ => {
             let (ex, _rng) = stats.format_value(args.max_len);
@@ -178,7 +195,7 @@ fn tree_prefix(ancestors: &[bool], is_last: bool) -> String {
 }
 
 fn color_label(label: &str) -> String {
-    if label == "[values]" || label == "[option]" {
+    if label == "[values]" || label == "[option]" || label == "[keys]" {
         label.bright_magenta().to_string()
     } else {
         label.bright_blue().to_string()
@@ -209,10 +226,15 @@ fn print_entry(
     println!("{}", line);
 }
 
-fn format_array_len(example_len: usize, min_len: usize, max_len: usize) -> String {
+fn format_collection_len(
+    type_name: &str,
+    example_len: usize,
+    min_len: usize,
+    max_len: usize,
+) -> String {
     let mut s = format!(
         "{} {} = {}",
-        "arr".bright_yellow(),
+        type_name.bright_yellow(),
         "len".bright_white(),
         format!("{}", example_len).bright_green()
     );
@@ -225,10 +247,11 @@ fn format_array_len(example_len: usize, min_len: usize, max_len: usize) -> Strin
     s
 }
 
-fn print_array_entry(
+fn print_collection_entry(
     ancestors: &[bool],
     is_last: bool,
     label: &str,
+    type_name: &str,
     example_len: usize,
     min_len: usize,
     max_len: usize,
@@ -238,7 +261,7 @@ fn print_array_entry(
         "{}{}: {}",
         prefix,
         color_label(label),
-        format_array_len(example_len, min_len, max_len)
+        format_collection_len(type_name, example_len, min_len, max_len)
     );
 }
 
@@ -293,10 +316,24 @@ fn print_stats_node(
             max_len,
             items,
         } => {
-            print_array_entry(ancestors, is_last, label, *example_len, *min_len, *max_len);
+            print_collection_entry(ancestors, is_last, label, "arr", *example_len, *min_len, *max_len);
             let mut child = ancestors.to_vec();
             child.push(is_last);
             print_field_stats(items, &child, args, true);
+        }
+        TypeStats::Map {
+            example_len,
+            min_len,
+            max_len,
+            keys,
+            values,
+        } => {
+            print_collection_entry(ancestors, is_last, label, "map", *example_len, *min_len, *max_len);
+            let mut child = ancestors.to_vec();
+            child.push(is_last);
+            let (ex, rng) = keys.format_value(args.max_len);
+            print_entry(&child, false, "[keys]", keys.display_name(), &ex, &rng);
+            print_field_stats(values, &child, args, true);
         }
         TypeStats::Null { .. } | TypeStats::Undefined { .. } => {
             let (ex, rng) = stats.format_value(args.max_len);

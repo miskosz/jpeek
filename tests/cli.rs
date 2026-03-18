@@ -294,11 +294,11 @@ fn deeply_nested() {
 
 #[test]
 fn fields_sorted() {
-    let out = jpeek(r#"{"zebra": 1, "apple": 2, "mango": 3}"#);
+    // With 2 keys, stays as object (below map threshold)
+    let out = jpeek(r#"{"zebra": 1, "apple": 2}"#);
     let lines: Vec<&str> = out.lines().collect();
     assert!(lines[1].contains("apple"));
-    assert!(lines[2].contains("mango"));
-    assert!(lines[3].contains("zebra"));
+    assert!(lines[2].contains("zebra"));
 }
 
 // --- Optional field detection (undefined) ---

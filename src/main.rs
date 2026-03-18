@@ -31,6 +31,7 @@ pub(crate) enum TypeKey {
     Null,
     Object,
     Array,
+    Map,
     Undefined,
 }
 
@@ -71,6 +72,13 @@ pub(crate) enum TypeStats {
         min_len: usize,
         max_len: usize,
         items: Box<CollectionStats>,
+    },
+    Map {
+        example_len: usize,
+        min_len: usize,
+        max_len: usize,
+        keys: Box<TypeStats>,
+        values: Box<CollectionStats>,
     },
 }
 
@@ -194,6 +202,27 @@ impl TypeStats {
                 *max_len = (*max_len).max(other_max);
                 items.merge(*other_items);
             }
+            (
+                Self::Map {
+                    min_len,
+                    max_len,
+                    keys,
+                    values,
+                    ..
+                },
+                Self::Map {
+                    min_len: omin,
+                    max_len: omax,
+                    keys: okeys,
+                    values: ovalues,
+                    ..
+                },
+            ) => {
+                *min_len = (*min_len).min(omin);
+                *max_len = (*max_len).max(omax);
+                keys.merge(*okeys);
+                values.merge(*ovalues);
+            }
             _ => {}
         }
     }
@@ -207,6 +236,7 @@ impl TypeStats {
             Self::Undefined { .. } => TypeKey::Undefined,
             Self::Object { .. } => TypeKey::Object,
             Self::Array { .. } => TypeKey::Array,
+            Self::Map { .. } => TypeKey::Map,
         }
     }
 }
@@ -249,6 +279,103 @@ impl CollectionStats {
             {
                 *min_count = 0;
             }
+        }
+    }
+}
+
+impl CollectionStats {
+    fn try_fold_maps(self) -> Self {
+        CollectionStats {
+            types: self
+                .types
+                .into_iter()
+                .map(|(k, ts)| (k, ts.try_fold_maps()))
+                .collect(),
+        }
+    }
+}
+
+impl TypeStats {
+    fn try_fold_maps(self) -> Self {
+        match self {
+            Self::Object { items } => {
+                // 1. Recursively fold children first
+                let items: BTreeMap<String, CollectionStats> = items
+                    .into_iter()
+                    .map(|(k, cs)| (k, cs.try_fold_maps()))
+                    .collect();
+
+                // 2. Need at least 3 keys to consider as map
+                if items.len() < 3 {
+                    return Self::Object { items };
+                }
+
+                // 3. Merge all value CollectionStats into one
+                let mut merged = CollectionStats::default();
+                let mut first = true;
+                for cs in items.values() {
+                    if first {
+                        merged = cs.clone();
+                        first = false;
+                    } else {
+                        merged.merge(cs.clone());
+                    }
+                }
+
+                // 4. Count "real" types (exclude Null/Undefined) — must be exactly 1
+                let real_types: Vec<_> = merged
+                    .types
+                    .iter()
+                    .filter(|(k, _)| **k != TypeKey::Null && **k != TypeKey::Undefined)
+                    .collect();
+
+                if real_types.len() != 1 {
+                    return Self::Object { items };
+                }
+
+                // 5. If that real type is Object: check at least one field has NO Undefined
+                if let Some((TypeKey::Object, TypeStats::Object { items: obj_items })) =
+                    real_types.first().map(|(k, v)| (*k, *v))
+                {
+                    let has_required_field = obj_items
+                        .values()
+                        .any(|cs| !cs.types.contains_key(&TypeKey::Undefined));
+                    if !has_required_field {
+                        return Self::Object { items };
+                    }
+                }
+
+                // 6. Build Map
+                let keys_vec: Vec<&String> = items.keys().collect();
+                let min_key = keys_vec.first().unwrap().to_string();
+                let max_key = keys_vec.last().unwrap().to_string();
+                let example_key = keys_vec.first().unwrap().to_string();
+                let len = items.len();
+
+                Self::Map {
+                    example_len: len,
+                    min_len: len,
+                    max_len: len,
+                    keys: Box::new(TypeStats::String {
+                        example: example_key,
+                        min_val: min_key,
+                        max_val: max_key,
+                    }),
+                    values: Box::new(merged),
+                }
+            }
+            Self::Array {
+                example_len,
+                min_len,
+                max_len,
+                items,
+            } => Self::Array {
+                example_len,
+                min_len,
+                max_len,
+                items: Box::new(items.try_fold_maps()),
+            },
+            other => other,
         }
     }
 }
@@ -380,5 +507,6 @@ fn main() {
             eprintln!("{} invalid JSON: {}", "error:".red().bold(), e);
             std::process::exit(1);
         });
+    let stats = stats.try_fold_maps();
     print::print_root(&stats, &args);
 }
